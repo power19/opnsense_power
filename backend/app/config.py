@@ -1,7 +1,10 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from backend directory (parent of app/)
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(env_path)
 
 
 class Settings:
