@@ -159,6 +159,28 @@ def get_shaper_config():
         return jsonify({"error": str(e), "pipes": [], "queues": [], "total_pipes": 0, "total_queues": 0}), 500
 
 
+@bp.route("/ssh-debug")
+def ssh_debug():
+    """Debug endpoint to see raw SSH output."""
+    try:
+        ssh_client = get_ssh_client()
+        if not ssh_client.is_configured():
+            return jsonify({"error": "SSH not configured"})
+
+        # Get raw output
+        raw_output = ssh_client.run_command("ipfw pipe show")
+        parsed = ssh_client.get_ipfw_pipe_stats()
+        detailed = ssh_client.get_ipfw_pipe_queue_stats()
+
+        return jsonify({
+            "raw_output": raw_output,
+            "parsed_basic": parsed,
+            "parsed_detailed": detailed
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @bp.route("/ssh-status")
 def get_ssh_status():
     """Check if SSH is configured and working."""
