@@ -44,6 +44,17 @@ def format_bandwidth(bps: float) -> str:
     return f"{bps:.0f} bps"
 
 
+@bp.route("/debug")
+def debug_interface_stats():
+    """Debug endpoint to see raw API response."""
+    try:
+        client = get_opnsense_client()
+        data = client.get_interface_statistics()
+        return jsonify({"raw_response": data})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @bp.route("/statistics")
 def get_interface_statistics():
     """Get interface statistics."""
