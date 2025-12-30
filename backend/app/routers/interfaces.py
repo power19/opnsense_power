@@ -93,8 +93,11 @@ def get_interface_bandwidth():
 
     try:
         client = get_opnsense_client()
-        data = client.get_interface_statistics()
+        raw_data = client.get_interface_statistics()
         current_time = time.time()
+
+        # Data is nested under 'statistics' key
+        data = raw_data.get("statistics", raw_data)
 
         interfaces = []
         time_delta = current_time - _last_sample_time if _last_sample_time > 0 else 0
@@ -102,8 +105,9 @@ def get_interface_bandwidth():
         if isinstance(data, dict):
             for name, stats in data.items():
                 if isinstance(stats, dict):
-                    bytes_rx = safe_int(stats.get("bytes received", 0))
-                    bytes_tx = safe_int(stats.get("bytes transmitted", 0))
+                    # OPNsense uses hyphenated keys
+                    bytes_rx = safe_int(stats.get("received-bytes", 0))
+                    bytes_tx = safe_int(stats.get("sent-bytes", 0))
 
                     # Calculate rate if we have a previous sample
                     rx_bps = 0.0
@@ -130,8 +134,23 @@ def get_interface_bandwidth():
                         "bytes_tx": bytes_tx,
                     }
 
+                    # Extract cleaner name from format like "[Brian] (vlan03) / 10.10.101.1"
+                    display_name = name
+                    if "] (" in name and ") / " in name:
+                        # Extract VLAN name and interface
+                        parts = name.split("] (")
+                        vlan_name = parts[0].strip("[")
+                        iface_part = parts[1].split(") / ")[0] if len(parts) > 1 else ""
+                        addr_part = parts[1].split(") / ")[1] if ") / " in parts[1] else ""
+                        display_name = f"{vlan_name} ({iface_part})"
+                        # Only show MAC address entries (they have the total traffic)
+                        if ":" not in addr_part and "." in addr_part:
+                            # Skip IP-specific entries, prefer MAC entries for totals
+                            continue
+
                     interfaces.append({
-                        "name": str(name),
+                        "name": display_name,
+                        "full_name": name,
                         "rx_bps": rx_bps,
                         "tx_bps": tx_bps,
                         "rx_formatted": format_bandwidth(rx_bps),
