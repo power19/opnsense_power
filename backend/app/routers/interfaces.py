@@ -99,12 +99,17 @@ def get_interface_bandwidth():
         # Data is nested under 'statistics' key
         data = raw_data.get("statistics", raw_data)
 
-        interfaces = []
+        interfaces_dict = {}  # Use dict to deduplicate by display_name
         time_delta = current_time - _last_sample_time if _last_sample_time > 0 else 0
 
         if isinstance(data, dict):
             for name, stats in data.items():
                 if isinstance(stats, dict):
+                    # Only process entries with <Link#X> network (these are the main MAC entries with totals)
+                    network = stats.get("network", "")
+                    if not network.startswith("<Link#"):
+                        continue
+
                     # OPNsense uses hyphenated keys
                     bytes_rx = safe_int(stats.get("received-bytes", 0))
                     bytes_tx = safe_int(stats.get("sent-bytes", 0))
@@ -134,21 +139,23 @@ def get_interface_bandwidth():
                         "bytes_tx": bytes_tx,
                     }
 
-                    # Extract cleaner name from format like "[Brian] (vlan03) / 10.10.101.1"
+                    # Extract cleaner name from format like "[Brian] (vlan03) / 7c:83:34:b0:62:28"
                     display_name = name
                     if "] (" in name and ") / " in name:
-                        # Extract VLAN name and interface
                         parts = name.split("] (")
                         vlan_name = parts[0].strip("[")
                         iface_part = parts[1].split(") / ")[0] if len(parts) > 1 else ""
-                        addr_part = parts[1].split(") / ")[1] if ") / " in parts[1] else ""
                         display_name = f"{vlan_name} ({iface_part})"
-                        # Only show MAC address entries (they have the total traffic)
-                        if ":" not in addr_part and "." in addr_part:
-                            # Skip IP-specific entries, prefer MAC entries for totals
-                            continue
+                    elif "] / " in name:
+                        # Handle format like "[pflog0] / pflog0"
+                        parts = name.split("] / ")
+                        display_name = parts[0].strip("[")
 
-                    interfaces.append({
+                    # Skip system interfaces we don't care about
+                    if display_name in ["enc0", "pfsync0", "pflog0"]:
+                        continue
+
+                    interfaces_dict[display_name] = {
                         "name": display_name,
                         "full_name": name,
                         "rx_bps": rx_bps,
@@ -161,11 +168,12 @@ def get_interface_bandwidth():
                         "bytes_transmitted": bytes_tx,
                         "bytes_received_formatted": format_bytes(bytes_rx),
                         "bytes_transmitted_formatted": format_bytes(bytes_tx),
-                    })
+                    }
 
         _last_sample_time = current_time
 
-        # Sort by total bandwidth (most active first)
+        # Convert to list and sort by total bandwidth (most active first)
+        interfaces = list(interfaces_dict.values())
         interfaces.sort(key=lambda x: x["total_bps"], reverse=True)
 
         return jsonify({
