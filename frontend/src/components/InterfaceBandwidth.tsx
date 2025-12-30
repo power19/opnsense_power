@@ -20,15 +20,11 @@ interface BandwidthResponse {
   sample_interval: number | null;
 }
 
-function getBandwidthColor(bps: number): string {
-  if (bps >= 100_000_000) return 'bg-red-500'; // 100+ Mbps
-  if (bps >= 50_000_000) return 'bg-orange-500'; // 50+ Mbps
-  if (bps >= 10_000_000) return 'bg-yellow-500'; // 10+ Mbps
-  if (bps >= 1_000_000) return 'bg-green-500'; // 1+ Mbps
-  return 'bg-blue-500';
+interface Props {
+  compact?: boolean;
 }
 
-export function InterfaceBandwidth() {
+export function InterfaceBandwidth({ compact = false }: Props) {
   // Poll every 2 seconds for smoother updates
   const { data, loading, error } = useApi<BandwidthResponse>('/interfaces/bandwidth', 2000);
 
@@ -50,9 +46,72 @@ export function InterfaceBandwidth() {
     );
   }
 
-  // Show all interfaces, sorted by activity
   const interfaces = data?.interfaces || [];
 
+  // Compact table view
+  if (compact) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold">
+            Real-Time Bandwidth ({interfaces.length})
+          </h2>
+          {data?.sample_interval ? (
+            <span className="text-xs text-green-600 dark:text-green-400">
+              Live - {data.sample_interval.toFixed(1)}s interval
+            </span>
+          ) : (
+            <span className="text-xs text-yellow-600 dark:text-yellow-400">
+              Collecting first sample...
+            </span>
+          )}
+        </div>
+
+        {interfaces.length === 0 ? (
+          <div className="text-gray-500 text-sm">No interfaces found</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b dark:border-gray-700 text-left text-gray-500">
+                  <th className="pb-2 font-medium">Interface</th>
+                  <th className="pb-2 font-medium text-right">RX</th>
+                  <th className="pb-2 font-medium text-right">TX</th>
+                  <th className="pb-2 font-medium text-right">Total</th>
+                  <th className="pb-2 font-medium text-right">RX Total</th>
+                  <th className="pb-2 font-medium text-right">TX Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {interfaces.map((iface) => (
+                  <tr key={iface.name} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="py-2 font-mono font-semibold">{iface.name}</td>
+                    <td className="py-2 text-right font-mono text-blue-600 dark:text-blue-400">
+                      {iface.rx_formatted}
+                    </td>
+                    <td className="py-2 text-right font-mono text-green-600 dark:text-green-400">
+                      {iface.tx_formatted}
+                    </td>
+                    <td className="py-2 text-right font-mono font-bold">
+                      {iface.total_formatted}
+                    </td>
+                    <td className="py-2 text-right font-mono text-gray-500">
+                      {iface.bytes_received_formatted}
+                    </td>
+                    <td className="py-2 text-right font-mono text-gray-500">
+                      {iface.bytes_transmitted_formatted}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Card view for dashboard
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
       <div className="flex justify-between items-center mb-4">
@@ -74,7 +133,7 @@ export function InterfaceBandwidth() {
         <div className="text-gray-500 text-sm">No interfaces found</div>
       ) : (
         <div className="space-y-3 max-h-96 overflow-y-auto">
-          {interfaces.slice(0, 15).map((iface) => (
+          {interfaces.slice(0, 8).map((iface) => (
             <div key={iface.name} className="border dark:border-gray-700 rounded-lg p-3">
               <div className="flex justify-between items-center mb-2">
                 <span className="font-mono text-sm font-semibold">{iface.name}</span>
@@ -96,7 +155,7 @@ export function InterfaceBandwidth() {
                       }}
                     />
                   </div>
-                  <span className="text-xs font-mono w-24 text-right">{iface.rx_formatted}</span>
+                  <span className="text-xs font-mono w-20 text-right">{iface.rx_formatted}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs w-8 text-gray-500">TX</span>
@@ -109,14 +168,8 @@ export function InterfaceBandwidth() {
                       }}
                     />
                   </div>
-                  <span className="text-xs font-mono w-24 text-right">{iface.tx_formatted}</span>
+                  <span className="text-xs font-mono w-20 text-right">{iface.tx_formatted}</span>
                 </div>
-              </div>
-
-              {/* Total bytes */}
-              <div className="flex justify-between mt-2 text-xs text-gray-500">
-                <span>Total RX: {iface.bytes_received_formatted}</span>
-                <span>Total TX: {iface.bytes_transmitted_formatted}</span>
               </div>
             </div>
           ))}

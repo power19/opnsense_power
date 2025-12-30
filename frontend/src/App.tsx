@@ -72,7 +72,7 @@ function App() {
             </div>
           </div>
         )}
-        {activeTab === 'bandwidth' && <InterfaceBandwidth />}
+        {activeTab === 'bandwidth' && <InterfaceBandwidth compact />}
         {activeTab === 'dhcp' && <DHCPLeases />}
         {activeTab === 'arp' && <ARPTable />}
         {activeTab === 'vlans' && <VLANList />}
