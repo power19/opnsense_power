@@ -167,15 +167,31 @@ def ssh_debug():
         if not ssh_client.is_configured():
             return jsonify({"error": "SSH not configured"})
 
-        # Get raw output
+        # Get raw output - both with and without -a flag
         raw_output = ssh_client.run_command("ipfw pipe show")
+        raw_output_with_a = ssh_client.run_command("ipfw -a pipe show")
         parsed = ssh_client.get_ipfw_pipe_stats()
         detailed = ssh_client.get_ipfw_pipe_queue_stats()
 
+        # Also get pipe numbers from API config
+        client = get_opnsense_client()
+        config = client.get_traffic_shapers()
+        ts_data = config.get("ts", {})
+        pipes_config = ts_data.get("pipes", {}).get("pipe", {})
+        api_pipes = {}
+        if isinstance(pipes_config, dict):
+            for pipe_id, pipe_info in pipes_config.items():
+                if isinstance(pipe_info, dict):
+                    num = pipe_info.get("number", "")
+                    bw = pipe_info.get("bandwidth", "")
+                    api_pipes[num] = {"uuid": pipe_id, "bandwidth": bw}
+
         return jsonify({
             "raw_output": raw_output,
+            "raw_output_with_accounting": raw_output_with_a,
             "parsed_basic": parsed,
-            "parsed_detailed": detailed
+            "parsed_detailed": detailed,
+            "api_pipe_numbers": api_pipes
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
