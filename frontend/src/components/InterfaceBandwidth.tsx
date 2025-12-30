@@ -50,29 +50,31 @@ export function InterfaceBandwidth() {
     );
   }
 
-  // Filter to only show interfaces with traffic
-  const activeInterfaces = data?.interfaces.filter(iface =>
-    iface.total_bps > 0 || iface.bytes_received > 0 || iface.bytes_transmitted > 0
-  ) || [];
+  // Show all interfaces, sorted by activity
+  const interfaces = data?.interfaces || [];
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-semibold">
-          Real-Time Bandwidth
+          Real-Time Bandwidth ({interfaces.length})
         </h2>
-        {data?.sample_interval && (
-          <span className="text-xs text-gray-500">
-            Updated every {data.sample_interval.toFixed(1)}s
+        {data?.sample_interval ? (
+          <span className="text-xs text-green-600 dark:text-green-400">
+            Live - {data.sample_interval.toFixed(1)}s interval
+          </span>
+        ) : (
+          <span className="text-xs text-yellow-600 dark:text-yellow-400">
+            Collecting first sample...
           </span>
         )}
       </div>
 
-      {activeInterfaces.length === 0 ? (
-        <div className="text-gray-500 text-sm">Waiting for traffic data...</div>
+      {interfaces.length === 0 ? (
+        <div className="text-gray-500 text-sm">No interfaces found</div>
       ) : (
-        <div className="space-y-3">
-          {activeInterfaces.slice(0, 10).map((iface) => (
+        <div className="space-y-3 max-h-96 overflow-y-auto">
+          {interfaces.slice(0, 15).map((iface) => (
             <div key={iface.name} className="border dark:border-gray-700 rounded-lg p-3">
               <div className="flex justify-between items-center mb-2">
                 <span className="font-mono text-sm font-semibold">{iface.name}</span>
