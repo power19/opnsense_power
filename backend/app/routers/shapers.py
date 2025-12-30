@@ -249,11 +249,10 @@ def get_shaper_statistics():
                     bandwidth_bps = parse_bandwidth_with_metric(bandwidth_raw, metric_dict)
                     pipe_number = safe_str(pipe_info.get("number", ""))
 
-                    # OPNsense ipfw pipe numbers are 10000 + pipe_number
-                    ipfw_pipe_num = str(10000 + int(pipe_number)) if pipe_number.isdigit() else ""
+                    # OPNsense API already reports ipfw pipe numbers (10000, 10001, etc.)
                     pipes_stats.append({
                         "pipe": pipe_number,
-                        "ipfw_pipe": ipfw_pipe_num,
+                        "ipfw_pipe": pipe_number,  # Already the correct ipfw number
                         "description": safe_str(pipe_info.get("description", "")),
                         "current_bps": 0,
                         "current_formatted": "0 bps",
