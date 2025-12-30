@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from flask import Blueprint, jsonify
 from ..opnsense_client import get_opnsense_client
 
-router = APIRouter(prefix="/shapers", tags=["Traffic Shapers"])
+bp = Blueprint("shapers", __name__, url_prefix="/shapers")
 
 
 def parse_bandwidth(bw_str: str) -> int:
@@ -47,12 +47,12 @@ def format_bandwidth(bps: int) -> str:
     return f"{bps} bps"
 
 
-@router.get("/config")
-async def get_shaper_config():
+@bp.route("/config")
+def get_shaper_config():
     """Get traffic shaper configuration."""
     try:
         client = get_opnsense_client()
-        data = await client.get_traffic_shapers()
+        data = client.get_traffic_shapers()
 
         # Parse pipes
         pipes = []
@@ -88,25 +88,25 @@ async def get_shaper_config():
                 "description": queue_info.get("description", ""),
             })
 
-        return {
+        return jsonify({
             "pipes": pipes,
             "queues": queues,
             "total_pipes": len(pipes),
             "total_queues": len(queues),
-        }
+        })
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return jsonify({"error": str(e)}), 500
 
 
-@router.get("/statistics")
-async def get_shaper_statistics():
+@bp.route("/statistics")
+def get_shaper_statistics():
     """Get live traffic shaper statistics."""
     try:
         client = get_opnsense_client()
-        stats = await client.get_shaper_statistics()
+        stats = client.get_shaper_statistics()
 
         # Get config for bandwidth limits
-        config = await client.get_traffic_shapers()
+        config = client.get_traffic_shapers()
         pipes_config = config.get("pipes", {}).get("pipe", {})
 
         # Build lookup for pipe bandwidth
@@ -143,6 +143,6 @@ async def get_shaper_statistics():
                 "dropped": pipe.get("dropped", 0),
             })
 
-        return {"pipes": pipes_stats, "total": len(pipes_stats)}
+        return jsonify({"pipes": pipes_stats, "total": len(pipes_stats)})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return jsonify({"error": str(e)}), 500

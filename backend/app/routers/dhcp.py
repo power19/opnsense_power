@@ -1,15 +1,15 @@
-from fastapi import APIRouter, HTTPException
+from flask import Blueprint, jsonify
 from ..opnsense_client import get_opnsense_client
 
-router = APIRouter(prefix="/dhcp", tags=["DHCP"])
+bp = Blueprint("dhcp", __name__, url_prefix="/dhcp")
 
 
-@router.get("/leases")
-async def get_dhcp_leases():
+@bp.route("/leases")
+def get_dhcp_leases():
     """Get all DHCP leases."""
     try:
         client = get_opnsense_client()
-        data = await client.get_dhcp_leases()
+        data = client.get_dhcp_leases()
 
         leases = []
         rows = data.get("rows", [])
@@ -26,6 +26,6 @@ async def get_dhcp_leases():
                 "description": row.get("descr", ""),
             })
 
-        return {"leases": leases, "total": len(leases)}
+        return jsonify({"leases": leases, "total": len(leases)})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return jsonify({"error": str(e)}), 500

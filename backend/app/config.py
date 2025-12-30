@@ -1,21 +1,15 @@
-from pydantic_settings import BaseSettings
-from functools import lru_cache
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
-class Settings(BaseSettings):
-    opnsense_url: str = "https://192.168.1.1"
-    opnsense_api_key: str = ""
-    opnsense_api_secret: str = ""
-    opnsense_verify_ssl: bool = False
-
-    # Refresh interval in seconds
-    refresh_interval: int = 10
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+class Settings:
+    opnsense_url: str = os.getenv("OPNSENSE_URL", "https://192.168.1.1")
+    opnsense_api_key: str = os.getenv("OPNSENSE_API_KEY", "")
+    opnsense_api_secret: str = os.getenv("OPNSENSE_API_SECRET", "")
+    opnsense_verify_ssl: bool = os.getenv("OPNSENSE_VERIFY_SSL", "false").lower() == "true"
+    refresh_interval: int = int(os.getenv("REFRESH_INTERVAL", "10"))
 
 
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
+settings = Settings()

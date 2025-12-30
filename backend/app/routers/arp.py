@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from flask import Blueprint, jsonify
 from ..opnsense_client import get_opnsense_client
 
-router = APIRouter(prefix="/arp", tags=["ARP"])
+bp = Blueprint("arp", __name__, url_prefix="/arp")
 
 
 # Common MAC vendor prefixes (OUI lookup)
@@ -68,12 +68,12 @@ def lookup_vendor(mac: str) -> str:
     return MAC_VENDORS.get(prefix, "Unknown")
 
 
-@router.get("/table")
-async def get_arp_table():
+@bp.route("/table")
+def get_arp_table():
     """Get ARP table with vendor lookup."""
     try:
         client = get_opnsense_client()
-        data = await client.get_arp_table()
+        data = client.get_arp_table()
 
         devices = []
         for entry in data:
@@ -89,6 +89,6 @@ async def get_arp_table():
                 "permanent": entry.get("permanent", False),
             })
 
-        return {"devices": devices, "total": len(devices)}
+        return jsonify({"devices": devices, "total": len(devices)})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return jsonify({"error": str(e)}), 500

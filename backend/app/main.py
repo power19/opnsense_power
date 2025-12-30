@@ -1,40 +1,31 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from flask import Flask, jsonify
+from flask_cors import CORS
 
-from .config import get_settings
+from .config import settings
 from .routers import dhcp, arp, vlans, interfaces, shapers
 
-app = FastAPI(
-    title="OPNsense Monitor",
-    description="API for monitoring OPNsense firewall",
-    version="1.0.0",
-)
+app = Flask(__name__)
+CORS(app)
 
-# CORS for frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Include routers
-app.include_router(dhcp.router)
-app.include_router(arp.router)
-app.include_router(vlans.router)
-app.include_router(interfaces.router)
-app.include_router(shapers.router)
+# Register blueprints
+app.register_blueprint(dhcp.bp)
+app.register_blueprint(arp.bp)
+app.register_blueprint(vlans.bp)
+app.register_blueprint(interfaces.bp)
+app.register_blueprint(shapers.bp)
 
 
-@app.get("/")
-async def root():
+@app.route("/")
+def root():
     """Health check endpoint."""
-    return {"status": "ok", "service": "OPNsense Monitor"}
+    return jsonify({"status": "ok", "service": "OPNsense Monitor"})
 
 
-@app.get("/config")
-async def get_config():
+@app.route("/config")
+def get_config():
     """Get frontend config (refresh interval)."""
-    settings = get_settings()
-    return {"refresh_interval": settings.refresh_interval}
+    return jsonify({"refresh_interval": settings.refresh_interval})
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000, debug=True)

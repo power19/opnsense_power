@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from flask import Blueprint, jsonify
 from ..opnsense_client import get_opnsense_client
 
-router = APIRouter(prefix="/interfaces", tags=["Interfaces"])
+bp = Blueprint("interfaces", __name__, url_prefix="/interfaces")
 
 
 def format_bytes(bytes_val: int) -> str:
@@ -13,12 +13,12 @@ def format_bytes(bytes_val: int) -> str:
     return f"{bytes_val:.2f} PB"
 
 
-@router.get("/statistics")
-async def get_interface_statistics():
+@bp.route("/statistics")
+def get_interface_statistics():
     """Get interface statistics."""
     try:
         client = get_opnsense_client()
-        data = await client.get_interface_statistics()
+        data = client.get_interface_statistics()
 
         interfaces = []
         for name, stats in data.items():
@@ -35,6 +35,6 @@ async def get_interface_statistics():
                 "collisions": stats.get("collisions", 0),
             })
 
-        return {"interfaces": interfaces, "total": len(interfaces)}
+        return jsonify({"interfaces": interfaces, "total": len(interfaces)})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return jsonify({"error": str(e)}), 500

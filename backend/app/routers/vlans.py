@@ -1,15 +1,15 @@
-from fastapi import APIRouter, HTTPException
+from flask import Blueprint, jsonify
 from ..opnsense_client import get_opnsense_client
 
-router = APIRouter(prefix="/vlans", tags=["VLANs"])
+bp = Blueprint("vlans", __name__, url_prefix="/vlans")
 
 
-@router.get("/list")
-async def get_vlans():
+@bp.route("/list")
+def get_vlans():
     """Get all configured VLANs."""
     try:
         client = get_opnsense_client()
-        data = await client.get_vlans()
+        data = client.get_vlans()
 
         vlans = []
         vlan_data = data.get("vlan", {}).get("vlan", {})
@@ -24,6 +24,6 @@ async def get_vlans():
                 "pcp": vlan_info.get("pcp", ""),
             })
 
-        return {"vlans": vlans, "total": len(vlans)}
+        return jsonify({"vlans": vlans, "total": len(vlans)})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return jsonify({"error": str(e)}), 500
