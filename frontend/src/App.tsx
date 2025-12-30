@@ -4,14 +4,16 @@ import { ARPTable } from './components/ARPTable';
 import { VLANList } from './components/VLANList';
 import { InterfaceStats } from './components/InterfaceStats';
 import { TrafficShapers } from './components/TrafficShapers';
+import { InterfaceBandwidth } from './components/InterfaceBandwidth';
 
-type Tab = 'dashboard' | 'dhcp' | 'arp' | 'vlans' | 'interfaces' | 'shapers';
+type Tab = 'dashboard' | 'bandwidth' | 'dhcp' | 'arp' | 'vlans' | 'interfaces' | 'shapers';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'dashboard', label: 'Dashboard' },
+    { id: 'bandwidth', label: 'Bandwidth' },
     { id: 'dhcp', label: 'DHCP Leases' },
     { id: 'arp', label: 'Network Devices' },
     { id: 'vlans', label: 'VLANs' },
@@ -56,7 +58,10 @@ function App() {
       <main className="max-w-7xl mx-auto px-4 py-6">
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
-            <TrafficShapers />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <InterfaceBandwidth />
+              <TrafficShapers />
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <DHCPLeases />
               <ARPTable />
@@ -67,6 +72,7 @@ function App() {
             </div>
           </div>
         )}
+        {activeTab === 'bandwidth' && <InterfaceBandwidth />}
         {activeTab === 'dhcp' && <DHCPLeases />}
         {activeTab === 'arp' && <ARPTable />}
         {activeTab === 'vlans' && <VLANList />}

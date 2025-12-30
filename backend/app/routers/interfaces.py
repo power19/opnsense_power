@@ -1,7 +1,12 @@
+import time
 from flask import Blueprint, jsonify
 from ..opnsense_client import get_opnsense_client
 
 bp = Blueprint("interfaces", __name__, url_prefix="/interfaces")
+
+# Store previous samples for rate calculation
+_previous_samples = {}
+_last_sample_time = 0
 
 
 def safe_int(value, default=0) -> int:
@@ -26,6 +31,17 @@ def format_bytes(bytes_val) -> str:
             return f"{bytes_val:.2f} {unit}"
         bytes_val /= 1024
     return f"{bytes_val:.2f} PB"
+
+
+def format_bandwidth(bps: float) -> str:
+    """Format bits per second to human readable."""
+    if bps >= 1_000_000_000:
+        return f"{bps / 1_000_000_000:.2f} Gbps"
+    elif bps >= 1_000_000:
+        return f"{bps / 1_000_000:.2f} Mbps"
+    elif bps >= 1_000:
+        return f"{bps / 1_000:.2f} Kbps"
+    return f"{bps:.0f} bps"
 
 
 @bp.route("/statistics")
@@ -55,5 +71,77 @@ def get_interface_statistics():
                     })
 
         return jsonify({"interfaces": interfaces, "total": len(interfaces)})
+    except Exception as e:
+        return jsonify({"error": str(e), "interfaces": [], "total": 0}), 500
+
+
+@bp.route("/bandwidth")
+def get_interface_bandwidth():
+    """Get real-time bandwidth per interface by calculating rate from samples."""
+    global _previous_samples, _last_sample_time
+
+    try:
+        client = get_opnsense_client()
+        data = client.get_interface_statistics()
+        current_time = time.time()
+
+        interfaces = []
+        time_delta = current_time - _last_sample_time if _last_sample_time > 0 else 0
+
+        if isinstance(data, dict):
+            for name, stats in data.items():
+                if isinstance(stats, dict):
+                    bytes_rx = safe_int(stats.get("bytes received", 0))
+                    bytes_tx = safe_int(stats.get("bytes transmitted", 0))
+
+                    # Calculate rate if we have a previous sample
+                    rx_bps = 0.0
+                    tx_bps = 0.0
+
+                    if name in _previous_samples and time_delta > 0:
+                        prev = _previous_samples[name]
+                        # Calculate bytes delta and convert to bits per second
+                        rx_delta = bytes_rx - prev["bytes_rx"]
+                        tx_delta = bytes_tx - prev["bytes_tx"]
+
+                        # Handle counter wrap-around (unlikely but possible)
+                        if rx_delta < 0:
+                            rx_delta = bytes_rx
+                        if tx_delta < 0:
+                            tx_delta = bytes_tx
+
+                        rx_bps = (rx_delta * 8) / time_delta
+                        tx_bps = (tx_delta * 8) / time_delta
+
+                    # Store current sample
+                    _previous_samples[name] = {
+                        "bytes_rx": bytes_rx,
+                        "bytes_tx": bytes_tx,
+                    }
+
+                    interfaces.append({
+                        "name": str(name),
+                        "rx_bps": rx_bps,
+                        "tx_bps": tx_bps,
+                        "rx_formatted": format_bandwidth(rx_bps),
+                        "tx_formatted": format_bandwidth(tx_bps),
+                        "total_bps": rx_bps + tx_bps,
+                        "total_formatted": format_bandwidth(rx_bps + tx_bps),
+                        "bytes_received": bytes_rx,
+                        "bytes_transmitted": bytes_tx,
+                        "bytes_received_formatted": format_bytes(bytes_rx),
+                        "bytes_transmitted_formatted": format_bytes(bytes_tx),
+                    })
+
+        _last_sample_time = current_time
+
+        # Sort by total bandwidth (most active first)
+        interfaces.sort(key=lambda x: x["total_bps"], reverse=True)
+
+        return jsonify({
+            "interfaces": interfaces,
+            "total": len(interfaces),
+            "sample_interval": time_delta if time_delta > 0 else None
+        })
     except Exception as e:
         return jsonify({"error": str(e), "interfaces": [], "total": 0}), 500
