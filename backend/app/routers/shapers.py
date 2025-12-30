@@ -65,20 +65,34 @@ def format_bandwidth(bps: int) -> str:
 
 @bp.route("/debug")
 def debug_shapers():
-    """Debug endpoint to see raw API responses."""
+    """Debug endpoint to see raw API responses - tries multiple endpoints."""
     try:
         client = get_opnsense_client()
         results = {}
 
+        # Try settings
         try:
             results["settings"] = client.get_traffic_shapers()
         except Exception as e:
             results["settings_error"] = str(e)
 
+        # Try statistics
         try:
             results["statistics"] = client.get_shaper_statistics()
         except Exception as e:
             results["statistics_error"] = str(e)
+
+        # Try status
+        try:
+            results["status"] = client.get_shaper_status()
+        except Exception as e:
+            results["status_error"] = str(e)
+
+        # Try IPFW/PF stats
+        try:
+            results["pf_stats"] = client.get_ipfw_stats()
+        except Exception as e:
+            results["pf_stats_error"] = str(e)
 
         return jsonify(results)
     except Exception as e:
@@ -150,10 +164,10 @@ def get_shaper_statistics():
     try:
         client = get_opnsense_client()
 
-        # Get config for bandwidth limits (statistics endpoint seems to fail)
+        # Get config for bandwidth limits
         config = client.get_traffic_shapers()
 
-        # Build pipes from config since statistics API failed
+        # Build pipes from config
         ts_data = config.get("ts", {})
         pipes_config = ts_data.get("pipes", {}).get("pipe", {})
 
@@ -168,8 +182,8 @@ def get_shaper_statistics():
                     pipes_stats.append({
                         "pipe": safe_str(pipe_info.get("number", "")),
                         "description": safe_str(pipe_info.get("description", "")),
-                        "current_bps": 0,  # No live stats available
-                        "current_formatted": "N/A",
+                        "current_bps": 0,
+                        "current_formatted": "0 bps",
                         "limit_bps": bandwidth_bps,
                         "limit_formatted": format_bandwidth(bandwidth_bps),
                         "usage_percent": 0,
@@ -178,16 +192,16 @@ def get_shaper_statistics():
                         "enabled": pipe_info.get("enabled", "0") == "1",
                     })
 
-        # Try to get actual statistics
+        # Try to get actual statistics from multiple sources
+        stats_found = False
+
+        # Method 1: trafficshaper/service/statistics
         try:
             stats = client.get_shaper_statistics()
-            if stats.get("status") != "failed":
+            if stats.get("status") != "failed" and "pipes" in stats:
                 stat_pipes = stats.get("pipes", [])
-                if isinstance(stat_pipes, list):
-                    # Create a lookup by pipe number
+                if isinstance(stat_pipes, list) and len(stat_pipes) > 0:
                     stats_lookup = {str(p.get("pipe", "")): p for p in stat_pipes if isinstance(p, dict)}
-
-                    # Update our pipes with live stats
                     for pipe in pipes_stats:
                         pipe_num = pipe["pipe"]
                         if pipe_num in stats_lookup:
@@ -197,15 +211,29 @@ def get_shaper_statistics():
                             pipe["current_formatted"] = format_bandwidth(current_bps)
                             pipe["packets"] = int(stat.get("packets", 0) or 0)
                             pipe["dropped"] = int(stat.get("dropped", 0) or 0)
-
                             if pipe["limit_bps"] > 0:
                                 pipe["usage_percent"] = round(min(100, (current_bps / pipe["limit_bps"]) * 100), 1)
+                            stats_found = True
         except Exception:
-            pass  # Statistics not available, keep zeros
+            pass
+
+        # Method 2: Try status endpoint
+        if not stats_found:
+            try:
+                status = client.get_shaper_status()
+                if isinstance(status, dict) and status.get("status") == "running":
+                    # Shaper is running but stats not available via API
+                    pass
+            except Exception:
+                pass
 
         # Sort by pipe number
         pipes_stats.sort(key=lambda x: int(x["pipe"]) if x["pipe"].isdigit() else 0)
 
-        return jsonify({"pipes": pipes_stats, "total": len(pipes_stats)})
+        return jsonify({
+            "pipes": pipes_stats,
+            "total": len(pipes_stats),
+            "live_stats_available": stats_found
+        })
     except Exception as e:
-        return jsonify({"error": str(e), "pipes": [], "total": 0}), 500
+        return jsonify({"error": str(e), "pipes": [], "total": 0, "live_stats_available": False}), 500

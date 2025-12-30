@@ -1,6 +1,10 @@
 import requests
+import urllib3
 from typing import Any
 from .config import settings
+
+# Suppress SSL warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class OPNsenseClient:
@@ -62,6 +66,14 @@ class OPNsenseClient:
     def get_shaper_statistics(self) -> dict:
         """Get traffic shaper statistics (live bandwidth)."""
         return self.post("trafficshaper/service/statistics")
+
+    def get_shaper_status(self) -> dict:
+        """Get traffic shaper service status."""
+        return self.get("trafficshaper/service/status")
+
+    def get_ipfw_stats(self) -> dict:
+        """Get IPFW (dummynet) statistics - alternative for shaper stats."""
+        return self.get("diagnostics/firewall/queryPfStatistics")
 
     # System info
     def get_system_status(self) -> dict:
