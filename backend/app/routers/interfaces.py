@@ -172,9 +172,9 @@ def get_interface_bandwidth():
 
         _last_sample_time = current_time
 
-        # Convert to list and sort by total bandwidth (most active first)
+        # Convert to list and sort alphabetically (stable order)
         interfaces = list(interfaces_dict.values())
-        interfaces.sort(key=lambda x: x["total_bps"], reverse=True)
+        interfaces.sort(key=lambda x: x["name"])
 
         return jsonify({
             "interfaces": interfaces,
