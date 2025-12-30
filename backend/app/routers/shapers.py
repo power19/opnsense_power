@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify
 from ..opnsense_client import get_opnsense_client
+from ..ssh_client import get_ssh_client
 
 bp = Blueprint("shapers", __name__, url_prefix="/shapers")
 
@@ -158,6 +159,36 @@ def get_shaper_config():
         return jsonify({"error": str(e), "pipes": [], "queues": [], "total_pipes": 0, "total_queues": 0}), 500
 
 
+@bp.route("/ssh-status")
+def get_ssh_status():
+    """Check if SSH is configured and working."""
+    try:
+        ssh_client = get_ssh_client()
+        if not ssh_client.is_configured():
+            return jsonify({
+                "configured": False,
+                "connected": False,
+                "message": "SSH not configured. Add OPNSENSE_SSH_HOST and OPNSENSE_SSH_PASSWORD to .env"
+            })
+
+        # Try to connect and run a simple command
+        try:
+            output = ssh_client.run_command("echo ok")
+            return jsonify({
+                "configured": True,
+                "connected": True,
+                "message": "SSH connected successfully"
+            })
+        except Exception as e:
+            return jsonify({
+                "configured": True,
+                "connected": False,
+                "message": f"SSH connection failed: {str(e)}"
+            })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @bp.route("/statistics")
 def get_shaper_statistics():
     """Get live traffic shaper statistics."""
@@ -178,9 +209,13 @@ def get_shaper_statistics():
                     bandwidth_raw = pipe_info.get("bandwidth", "0")
                     metric_dict = pipe_info.get("bandwidthMetric", {})
                     bandwidth_bps = parse_bandwidth_with_metric(bandwidth_raw, metric_dict)
+                    pipe_number = safe_str(pipe_info.get("number", ""))
 
+                    # OPNsense ipfw pipe numbers are 10000 + pipe_number
+                    ipfw_pipe_num = str(10000 + int(pipe_number)) if pipe_number.isdigit() else ""
                     pipes_stats.append({
-                        "pipe": safe_str(pipe_info.get("number", "")),
+                        "pipe": pipe_number,
+                        "ipfw_pipe": ipfw_pipe_num,
                         "description": safe_str(pipe_info.get("description", "")),
                         "current_bps": 0,
                         "current_formatted": "0 bps",
@@ -188,42 +223,53 @@ def get_shaper_statistics():
                         "limit_formatted": format_bandwidth(bandwidth_bps),
                         "usage_percent": 0,
                         "packets": 0,
+                        "bytes": 0,
                         "dropped": 0,
                         "enabled": pipe_info.get("enabled", "0") == "1",
                     })
 
-        # Try to get actual statistics from multiple sources
         stats_found = False
+        ssh_available = False
 
-        # Method 1: trafficshaper/service/statistics
+        # Method 1: Try SSH with ipfw pipe show (most reliable)
         try:
-            stats = client.get_shaper_statistics()
-            if stats.get("status") != "failed" and "pipes" in stats:
-                stat_pipes = stats.get("pipes", [])
-                if isinstance(stat_pipes, list) and len(stat_pipes) > 0:
-                    stats_lookup = {str(p.get("pipe", "")): p for p in stat_pipes if isinstance(p, dict)}
+            ssh_client = get_ssh_client()
+            if ssh_client.is_configured():
+                ssh_stats = ssh_client.get_ipfw_pipe_queue_stats()
+                if "error" not in ssh_stats and "pipes" in ssh_stats:
+                    ssh_pipes = ssh_stats.get("pipes", {})
                     for pipe in pipes_stats:
-                        pipe_num = pipe["pipe"]
-                        if pipe_num in stats_lookup:
-                            stat = stats_lookup[pipe_num]
-                            current_bps = int(stat.get("bps", 0) or 0)
-                            pipe["current_bps"] = current_bps
-                            pipe["current_formatted"] = format_bandwidth(current_bps)
-                            pipe["packets"] = int(stat.get("packets", 0) or 0)
-                            pipe["dropped"] = int(stat.get("dropped", 0) or 0)
-                            if pipe["limit_bps"] > 0:
-                                pipe["usage_percent"] = round(min(100, (current_bps / pipe["limit_bps"]) * 100), 1)
+                        # OPNsense uses pipe numbers like 10006, 10007 for pipes 6, 7
+                        ipfw_pipe = pipe.get("ipfw_pipe", "")
+                        if ipfw_pipe in ssh_pipes:
+                            ssh_data = ssh_pipes[ipfw_pipe]
+                            pipe["packets"] = ssh_data.get("total_packets", 0)
+                            pipe["bytes"] = ssh_data.get("total_bytes", 0)
                             stats_found = True
+                            ssh_available = True
         except Exception:
             pass
 
-        # Method 2: Try status endpoint
+        # Method 2: trafficshaper/service/statistics (usually fails)
         if not stats_found:
             try:
-                status = client.get_shaper_status()
-                if isinstance(status, dict) and status.get("status") == "running":
-                    # Shaper is running but stats not available via API
-                    pass
+                stats = client.get_shaper_statistics()
+                if stats.get("status") != "failed" and "pipes" in stats:
+                    stat_pipes = stats.get("pipes", [])
+                    if isinstance(stat_pipes, list) and len(stat_pipes) > 0:
+                        stats_lookup = {str(p.get("pipe", "")): p for p in stat_pipes if isinstance(p, dict)}
+                        for pipe in pipes_stats:
+                            pipe_num = pipe["pipe"]
+                            if pipe_num in stats_lookup:
+                                stat = stats_lookup[pipe_num]
+                                current_bps = int(stat.get("bps", 0) or 0)
+                                pipe["current_bps"] = current_bps
+                                pipe["current_formatted"] = format_bandwidth(current_bps)
+                                pipe["packets"] = int(stat.get("packets", 0) or 0)
+                                pipe["dropped"] = int(stat.get("dropped", 0) or 0)
+                                if pipe["limit_bps"] > 0:
+                                    pipe["usage_percent"] = round(min(100, (current_bps / pipe["limit_bps"]) * 100), 1)
+                                stats_found = True
             except Exception:
                 pass
 
@@ -233,7 +279,8 @@ def get_shaper_statistics():
         return jsonify({
             "pipes": pipes_stats,
             "total": len(pipes_stats),
-            "live_stats_available": stats_found
+            "live_stats_available": stats_found,
+            "ssh_available": ssh_available
         })
     except Exception as e:
-        return jsonify({"error": str(e), "pipes": [], "total": 0, "live_stats_available": False}), 500
+        return jsonify({"error": str(e), "pipes": [], "total": 0, "live_stats_available": False, "ssh_available": False}), 500

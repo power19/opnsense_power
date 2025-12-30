@@ -9,12 +9,23 @@ interface PipeStat {
   limit_formatted: string;
   usage_percent: number;
   packets: number;
+  bytes: number;
   dropped: number;
+  enabled: boolean;
 }
 
 interface ShaperResponse {
   pipes: PipeStat[];
   total: number;
+  live_stats_available: boolean;
+  ssh_available: boolean;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(2)} MB`;
+  if (bytes >= 1_000) return `${(bytes / 1_000).toFixed(2)} KB`;
+  return `${bytes} B`;
 }
 
 function getUsageColor(percent: number): string {
@@ -61,20 +72,40 @@ export function TrafficShapers() {
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-      <h2 className="text-lg font-semibold mb-4">
-        Traffic Shapers ({data?.total || 0})
-      </h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-semibold">
+          Traffic Shapers ({data?.total || 0})
+        </h2>
+        <div className="flex items-center gap-2 text-xs">
+          {data?.ssh_available ? (
+            <span className="px-2 py-1 rounded bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+              SSH Connected
+            </span>
+          ) : (
+            <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+              SSH Not Configured
+            </span>
+          )}
+        </div>
+      </div>
       <div className="space-y-4">
         {data?.pipes.map((pipe) => (
-          <div key={pipe.pipe} className="border dark:border-gray-700 rounded-lg p-4">
+          <div key={pipe.pipe} className={`border dark:border-gray-700 rounded-lg p-4 ${!pipe.enabled ? 'opacity-50' : ''}`}>
             <div className="flex justify-between items-center mb-2">
-              <div>
+              <div className="flex items-center gap-2">
                 <span className="font-semibold">{pipe.description || `Pipe ${pipe.pipe}`}</span>
-                <span className="text-sm text-gray-500 ml-2">({pipe.limit_formatted})</span>
+                <span className="text-sm text-gray-500">({pipe.limit_formatted})</span>
+                {!pipe.enabled && (
+                  <span className="px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+                    Disabled
+                  </span>
+                )}
               </div>
               <div className={`font-mono font-bold ${getUsageTextColor(pipe.usage_percent)}`}>
                 {pipe.current_formatted}
-                <span className="text-sm ml-1">({pipe.usage_percent}%)</span>
+                {pipe.usage_percent > 0 && (
+                  <span className="text-sm ml-1">({pipe.usage_percent}%)</span>
+                )}
               </div>
             </div>
 
@@ -89,6 +120,7 @@ export function TrafficShapers() {
             {/* Stats */}
             <div className="flex justify-between mt-2 text-xs text-gray-500">
               <span>Packets: {pipe.packets.toLocaleString()}</span>
+              <span>Traffic: {formatBytes(pipe.bytes || 0)}</span>
               <span className={pipe.dropped > 0 ? 'text-red-500' : ''}>
                 Dropped: {pipe.dropped.toLocaleString()}
               </span>
