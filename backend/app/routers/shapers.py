@@ -13,53 +13,43 @@ def safe_str(value) -> str:
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, dict):
-        if "selected" in value:
-            selected = value.get("selected")
-            if isinstance(selected, str):
-                return selected
-            elif isinstance(selected, list) and len(selected) > 0:
-                return str(selected[0])
+        # Handle OPNsense selected value format
+        for key, val in value.items():
+            if isinstance(val, dict) and val.get("selected") == 1:
+                return val.get("value", key)
         return ""
     if isinstance(value, list):
         return ", ".join(str(v) for v in value)
     return str(value)
 
 
-def parse_bandwidth(bw_str) -> int:
-    """Parse bandwidth string to bits per second."""
-    if not bw_str:
+def get_selected_metric(metric_dict) -> str:
+    """Get the selected bandwidth metric from OPNsense format."""
+    if not isinstance(metric_dict, dict):
+        return "Mbit"
+    for key, val in metric_dict.items():
+        if isinstance(val, dict) and val.get("selected") == 1:
+            return key
+    return "Mbit"
+
+
+def parse_bandwidth_with_metric(bandwidth, metric_dict) -> int:
+    """Parse bandwidth value with its metric to bits per second."""
+    try:
+        bw_value = float(bandwidth) if bandwidth else 0
+    except (ValueError, TypeError):
         return 0
 
-    bw_str = safe_str(bw_str).strip().lower()
+    metric = get_selected_metric(metric_dict)
 
-    # Handle "Mbit/s" format from OPNsense UI
     multipliers = {
-        "gbit/s": 1_000_000_000,
-        "mbit/s": 1_000_000,
-        "kbit/s": 1_000,
-        "gbps": 1_000_000_000,
-        "mbps": 1_000_000,
-        "kbps": 1_000,
-        "gbit": 1_000_000_000,
-        "mbit": 1_000_000,
-        "kbit": 1_000,
-        "g": 1_000_000_000,
-        "m": 1_000_000,
-        "k": 1_000,
+        "Gbit": 1_000_000_000,
+        "Mbit": 1_000_000,
+        "Kbit": 1_000,
+        "bit": 1,
     }
 
-    for suffix, mult in multipliers.items():
-        if bw_str.endswith(suffix):
-            try:
-                num_str = bw_str.replace(suffix, "").strip()
-                return int(float(num_str) * mult)
-            except ValueError:
-                return 0
-
-    try:
-        return int(float(bw_str))
-    except ValueError:
-        return 0
+    return int(bw_value * multipliers.get(metric, 1_000_000))
 
 
 def format_bandwidth(bps: int) -> str:
@@ -78,8 +68,6 @@ def debug_shapers():
     """Debug endpoint to see raw API responses."""
     try:
         client = get_opnsense_client()
-
-        # Try multiple endpoints
         results = {}
 
         try:
@@ -107,50 +95,41 @@ def get_shaper_config():
         pipes = []
         queues = []
 
-        # Try multiple possible data structures
-        # Structure 1: data.pipes.pipe
-        pipes_data = data.get("pipes", {})
-        if isinstance(pipes_data, dict):
-            pipes_data = pipes_data.get("pipe", {})
-
-        # Structure 2: data.pipe (direct)
-        if not pipes_data:
-            pipes_data = data.get("pipe", {})
+        # OPNsense structure: data.ts.pipes.pipe
+        ts_data = data.get("ts", {})
+        pipes_data = ts_data.get("pipes", {}).get("pipe", {})
 
         if isinstance(pipes_data, dict):
             for pipe_id, pipe_info in pipes_data.items():
                 if isinstance(pipe_info, dict):
-                    bandwidth_raw = safe_str(pipe_info.get("bandwidth", "0"))
-                    bandwidth_bps = parse_bandwidth(bandwidth_raw)
+                    bandwidth_raw = pipe_info.get("bandwidth", "0")
+                    metric_dict = pipe_info.get("bandwidthMetric", {})
+                    bandwidth_bps = parse_bandwidth_with_metric(bandwidth_raw, metric_dict)
+                    metric = get_selected_metric(metric_dict)
 
                     pipes.append({
                         "uuid": str(pipe_id),
-                        "number": safe_str(pipe_info.get("number", pipe_id)),
-                        "enabled": safe_str(pipe_info.get("enabled", "0")) == "1",
-                        "bandwidth": bandwidth_raw,
+                        "number": safe_str(pipe_info.get("number", "")),
+                        "enabled": pipe_info.get("enabled", "0") == "1",
+                        "bandwidth": f"{bandwidth_raw} {metric}/s",
                         "bandwidth_bps": bandwidth_bps,
                         "bandwidth_formatted": format_bandwidth(bandwidth_bps),
                         "description": safe_str(pipe_info.get("description", "")),
-                        "mask": safe_str(pipe_info.get("mask", "")),
+                        "mask": safe_str(pipe_info.get("mask", {})),
                         "delay": safe_str(pipe_info.get("delay", "0")),
                     })
 
-        # Parse queues
-        queues_data = data.get("queues", {})
-        if isinstance(queues_data, dict):
-            queues_data = queues_data.get("queue", {})
-
-        if not queues_data:
-            queues_data = data.get("queue", {})
+        # Parse queues: data.ts.queues.queue
+        queues_data = ts_data.get("queues", {}).get("queue", {})
 
         if isinstance(queues_data, dict):
             for queue_id, queue_info in queues_data.items():
                 if isinstance(queue_info, dict):
                     queues.append({
                         "uuid": str(queue_id),
-                        "number": safe_str(queue_info.get("number", queue_id)),
-                        "enabled": safe_str(queue_info.get("enabled", "0")) == "1",
-                        "pipe": safe_str(queue_info.get("pipe", "")),
+                        "number": safe_str(queue_info.get("number", "")),
+                        "enabled": queue_info.get("enabled", "0") == "1",
+                        "pipe": safe_str(queue_info.get("pipe", {})),
                         "weight": safe_str(queue_info.get("weight", "")),
                         "description": safe_str(queue_info.get("description", "")),
                     })
@@ -171,78 +150,61 @@ def get_shaper_statistics():
     try:
         client = get_opnsense_client()
 
-        # Get statistics
-        stats = client.get_shaper_statistics()
-
-        # Get config for bandwidth limits
+        # Get config for bandwidth limits (statistics endpoint seems to fail)
         config = client.get_traffic_shapers()
 
-        # Build lookup for pipe bandwidth from config
-        pipe_limits = {}
-        pipes_config = config.get("pipes", {})
-        if isinstance(pipes_config, dict):
-            pipes_config = pipes_config.get("pipe", {})
-        if not pipes_config:
-            pipes_config = config.get("pipe", {})
+        # Build pipes from config since statistics API failed
+        ts_data = config.get("ts", {})
+        pipes_config = ts_data.get("pipes", {}).get("pipe", {})
 
+        pipes_stats = []
         if isinstance(pipes_config, dict):
             for pipe_id, pipe_info in pipes_config.items():
                 if isinstance(pipe_info, dict):
-                    pipe_num = safe_str(pipe_info.get("number", pipe_id))
-                    bandwidth_bps = parse_bandwidth(pipe_info.get("bandwidth", "0"))
-                    pipe_limits[pipe_num] = {
-                        "bandwidth_bps": bandwidth_bps,
-                        "description": safe_str(pipe_info.get("description", "")),
-                    }
-                    # Also store by pipe_id in case stats use that
-                    pipe_limits[str(pipe_id)] = pipe_limits[pipe_num]
-
-        # Parse statistics - try multiple formats
-        pipes_stats = []
-
-        # Format 1: stats.pipes[]
-        stat_pipes = stats.get("pipes", [])
-        if isinstance(stat_pipes, list):
-            for pipe in stat_pipes:
-                if isinstance(pipe, dict):
-                    pipe_num = safe_str(pipe.get("pipe", ""))
-                    current_bps = int(pipe.get("bps", 0) or 0)
-                    limit_info = pipe_limits.get(pipe_num, {})
-                    limit_bps = limit_info.get("bandwidth_bps", 0)
-
-                    usage_percent = 0
-                    if limit_bps > 0:
-                        usage_percent = min(100, (current_bps / limit_bps) * 100)
+                    bandwidth_raw = pipe_info.get("bandwidth", "0")
+                    metric_dict = pipe_info.get("bandwidthMetric", {})
+                    bandwidth_bps = parse_bandwidth_with_metric(bandwidth_raw, metric_dict)
 
                     pipes_stats.append({
-                        "pipe": pipe_num,
-                        "description": limit_info.get("description", f"Pipe {pipe_num}"),
-                        "current_bps": current_bps,
-                        "current_formatted": format_bandwidth(current_bps),
-                        "limit_bps": limit_bps,
-                        "limit_formatted": format_bandwidth(limit_bps),
-                        "usage_percent": round(usage_percent, 1),
-                        "packets": int(pipe.get("packets", 0) or 0),
-                        "dropped": int(pipe.get("dropped", 0) or 0),
+                        "pipe": safe_str(pipe_info.get("number", "")),
+                        "description": safe_str(pipe_info.get("description", "")),
+                        "current_bps": 0,  # No live stats available
+                        "current_formatted": "N/A",
+                        "limit_bps": bandwidth_bps,
+                        "limit_formatted": format_bandwidth(bandwidth_bps),
+                        "usage_percent": 0,
+                        "packets": 0,
+                        "dropped": 0,
+                        "enabled": pipe_info.get("enabled", "0") == "1",
                     })
 
-        # If no stats from API, create entries from config
-        if not pipes_stats and pipe_limits:
-            for pipe_num, info in pipe_limits.items():
-                # Skip duplicate entries (we stored both by num and id)
-                if any(p["pipe"] == pipe_num for p in pipes_stats):
-                    continue
-                pipes_stats.append({
-                    "pipe": pipe_num,
-                    "description": info.get("description", f"Pipe {pipe_num}"),
-                    "current_bps": 0,
-                    "current_formatted": "0 bps",
-                    "limit_bps": info.get("bandwidth_bps", 0),
-                    "limit_formatted": format_bandwidth(info.get("bandwidth_bps", 0)),
-                    "usage_percent": 0,
-                    "packets": 0,
-                    "dropped": 0,
-                })
+        # Try to get actual statistics
+        try:
+            stats = client.get_shaper_statistics()
+            if stats.get("status") != "failed":
+                stat_pipes = stats.get("pipes", [])
+                if isinstance(stat_pipes, list):
+                    # Create a lookup by pipe number
+                    stats_lookup = {str(p.get("pipe", "")): p for p in stat_pipes if isinstance(p, dict)}
+
+                    # Update our pipes with live stats
+                    for pipe in pipes_stats:
+                        pipe_num = pipe["pipe"]
+                        if pipe_num in stats_lookup:
+                            stat = stats_lookup[pipe_num]
+                            current_bps = int(stat.get("bps", 0) or 0)
+                            pipe["current_bps"] = current_bps
+                            pipe["current_formatted"] = format_bandwidth(current_bps)
+                            pipe["packets"] = int(stat.get("packets", 0) or 0)
+                            pipe["dropped"] = int(stat.get("dropped", 0) or 0)
+
+                            if pipe["limit_bps"] > 0:
+                                pipe["usage_percent"] = round(min(100, (current_bps / pipe["limit_bps"]) * 100), 1)
+        except Exception:
+            pass  # Statistics not available, keep zeros
+
+        # Sort by pipe number
+        pipes_stats.sort(key=lambda x: int(x["pipe"]) if x["pipe"].isdigit() else 0)
 
         return jsonify({"pipes": pipes_stats, "total": len(pipes_stats)})
     except Exception as e:
