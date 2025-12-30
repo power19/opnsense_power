@@ -230,13 +230,19 @@ def get_shaper_statistics():
 
         stats_found = False
         ssh_available = False
+        ssh_configured = False
+        ssh_error = None
 
         # Method 1: Try SSH with ipfw pipe show (most reliable)
         try:
             ssh_client = get_ssh_client()
-            if ssh_client.is_configured():
+            ssh_configured = ssh_client.is_configured()
+            if ssh_configured:
                 ssh_stats = ssh_client.get_ipfw_pipe_queue_stats()
-                if "error" not in ssh_stats and "pipes" in ssh_stats:
+                if "error" in ssh_stats:
+                    ssh_error = ssh_stats.get("error")
+                elif "pipes" in ssh_stats:
+                    ssh_available = True  # SSH works even if no pipes match
                     ssh_pipes = ssh_stats.get("pipes", {})
                     for pipe in pipes_stats:
                         # OPNsense uses pipe numbers like 10006, 10007 for pipes 6, 7
@@ -246,9 +252,8 @@ def get_shaper_statistics():
                             pipe["packets"] = ssh_data.get("total_packets", 0)
                             pipe["bytes"] = ssh_data.get("total_bytes", 0)
                             stats_found = True
-                            ssh_available = True
-        except Exception:
-            pass
+        except Exception as e:
+            ssh_error = str(e)
 
         # Method 2: trafficshaper/service/statistics (usually fails)
         if not stats_found:
@@ -280,7 +285,9 @@ def get_shaper_statistics():
             "pipes": pipes_stats,
             "total": len(pipes_stats),
             "live_stats_available": stats_found,
-            "ssh_available": ssh_available
+            "ssh_configured": ssh_configured,
+            "ssh_available": ssh_available,
+            "ssh_error": ssh_error
         })
     except Exception as e:
-        return jsonify({"error": str(e), "pipes": [], "total": 0, "live_stats_available": False, "ssh_available": False}), 500
+        return jsonify({"error": str(e), "pipes": [], "total": 0, "live_stats_available": False, "ssh_configured": False, "ssh_available": False, "ssh_error": str(e)}), 500

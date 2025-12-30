@@ -18,7 +18,9 @@ interface ShaperResponse {
   pipes: PipeStat[];
   total: number;
   live_stats_available: boolean;
+  ssh_configured: boolean;
   ssh_available: boolean;
+  ssh_error: string | null;
 }
 
 function formatBytes(bytes: number): string {
@@ -80,6 +82,10 @@ export function TrafficShapers() {
           {data?.ssh_available ? (
             <span className="px-2 py-1 rounded bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
               SSH Connected
+            </span>
+          ) : data?.ssh_configured ? (
+            <span className="px-2 py-1 rounded bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" title={data?.ssh_error || 'Connection failed'}>
+              SSH Error
             </span>
           ) : (
             <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
